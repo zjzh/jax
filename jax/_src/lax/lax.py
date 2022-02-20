@@ -1564,13 +1564,17 @@ ad.defjvp_zero(sign_p)
 def _sign_lower_mhlo(ctx, x):
   x_aval, = ctx.avals_in
   if dtypes.issubdtype(x_aval.dtype, np.unsignedinteger):
-    return mhlo.SelectOp(
-        mhlo.CompareOp(
-            mlir.aval_to_ir_type(x_aval.update(dtype=np.dtype(np.bool_))),
-            x, mlir.full_like_aval(0, x_aval), ir.StringAttr.get("EQ"),
-            ir.StringAttr.get("UNSIGNED")).result,
-        mlir.full_like_aval(0, x_aval),
-        mlir.full_like_aval(1, x_aval)).results
+    if jax._src.lib.mlir_api_version < 3:
+      compare = mhlo.CompareOp(
+          mlir.aval_to_ir_type(x_aval.update(dtype=np.dtype(np.bool_))), x,
+          mlir.full_like_aval(0, x_aval), ir.StringAttr.get("EQ"),
+          ir.StringAttr.get("UNSIGNED")).result
+    else:
+      compare = mhlo.CompareOp(x, mlir.full_like_aval(0, x_aval),
+                               ir.StringAttr.get("EQ"),
+                               ir.StringAttr.get("UNSIGNED")).result
+    return mhlo.SelectOp(compare, mlir.full_like_aval(0, x_aval),
+                         mlir.full_like_aval(1, x_aval)).results
   return mhlo.SignOp(x).results
 
 mlir.register_lowering(sign_p, _sign_lower_mhlo)
@@ -2201,9 +2205,13 @@ def _compare_lower_mhlo(direction: str, ctx, x, y):
     compare_type = "SIGNED"
   else:
     compare_type = "UNSIGNED"
-  return mhlo.CompareOp(mlir.aval_to_ir_type(aval_out), x, y,
-                        ir.StringAttr.get(direction),
-                        ir.StringAttr.get(compare_type)).results
+  if jax._src.lib.mlir_api_version < 3:
+    return mhlo.CompareOp(
+        mlir.aval_to_ir_type(aval_out), x, y, ir.StringAttr.get(direction),
+        ir.StringAttr.get(compare_type)).results
+  else:
+    return mhlo.CompareOp(x, y, ir.StringAttr.get(direction),
+                          ir.StringAttr.get(compare_type)).results
 
 eq_p = naryop(_fixed_dtype(np.bool_), [_any, _any], 'eq')
 ad.defjvp_zero(eq_p)
@@ -3338,9 +3346,14 @@ def _select_mhlo_lowering(ctx, which, *cases):
     if len(cases) == 1:
       return cases[0]
     mid = len(cases) // 2
-    pred = mhlo.CompareOp(
-      bool_shape, which, mlir.full_like_aval(offset + mid, which_aval),
-      lt, compare_type)
+    if jax._src.lib.mlir_api_version < 3:
+      pred = mhlo.CompareOp(bool_shape, which,
+                            mlir.full_like_aval(offset + mid, which_aval), lt,
+                            compare_type)
+    else:
+      pred = mhlo.CompareOp(which, mlir.full_like_aval(offset + mid,
+                                                       which_aval), lt,
+                            compare_type)
     return mhlo.SelectOp(pred, _select(offset, cases[:mid]),
                          _select(offset + mid, cases[mid:])).result
 

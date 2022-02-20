@@ -33,6 +33,7 @@ from jax import linear_util as lu
 from jax._src import ad_util
 from jax._src import device_array
 from jax._src import dtypes
+import jax._src.lib
 from jax._src.lib.mlir import ir
 from jax._src.lib.mlir.dialects import builtin
 from jax._src.lib.mlir.dialects import chlo
@@ -776,17 +777,26 @@ def _minmax_mhlo(op, cmp, x, y):
   if ir.ComplexType.isinstance(tensor_type.element_type):
     rx = mhlo.RealOp(x).result
     ry = mhlo.RealOp(y).result
-    dims = [tensor_type.get_dim_size(i) for i in range(tensor_type.rank)]
-    bool_shape = ir.RankedTensorType.get(dims, ir.IntegerType.get_signless(1))
-    real_eq = mhlo.CompareOp(bool_shape, rx, ry, ir.StringAttr.get("EQ"),
-                             ir.StringAttr.get("FLOAT"))
-    real_cmp = mhlo.CompareOp(bool_shape, rx, ry,
-                              ir.StringAttr.get(cmp),
-                              ir.StringAttr.get("FLOAT"))
-    imag_cmp = mhlo.CompareOp(bool_shape, mhlo.ImagOp(x).result,
-                              mhlo.ImagOp(y).result,
-                              ir.StringAttr.get(cmp),
-                              ir.StringAttr.get("FLOAT"))
+    if jax._src.lib.mlir_api_version < 3:
+      dims = [tensor_type.get_dim_size(i) for i in range(tensor_type.rank)]
+      bool_shape = ir.RankedTensorType.get(dims, ir.IntegerType.get_signless(1))
+      real_eq = mhlo.CompareOp(bool_shape, rx, ry, ir.StringAttr.get("EQ"),
+                               ir.StringAttr.get("FLOAT"))
+      real_cmp = mhlo.CompareOp(bool_shape, rx, ry, ir.StringAttr.get(cmp),
+                                ir.StringAttr.get("FLOAT"))
+      imag_cmp = mhlo.CompareOp(bool_shape,
+                                mhlo.ImagOp(x).result,
+                                mhlo.ImagOp(y).result, ir.StringAttr.get(cmp),
+                                ir.StringAttr.get("FLOAT"))
+    else:
+      real_eq = mhlo.CompareOp(rx, ry, ir.StringAttr.get("EQ"),
+                               ir.StringAttr.get("FLOAT"))
+      real_cmp = mhlo.CompareOp(rx, ry, ir.StringAttr.get(cmp),
+                                ir.StringAttr.get("FLOAT"))
+      imag_cmp = mhlo.CompareOp(
+          mhlo.ImagOp(x).result,
+          mhlo.ImagOp(y).result, ir.StringAttr.get(cmp),
+          ir.StringAttr.get("FLOAT"))
     which = mhlo.SelectOp(real_eq, imag_cmp, real_cmp).result
     return mhlo.SelectOp(which, x, y)
   else:
@@ -808,9 +818,14 @@ def convert_mhlo(x, aval_in, aval_out):
       compare_type = "SIGNED"
     else:
       compare_type = "UNSIGNED"
-    return mhlo.CompareOp(
-        aval_to_ir_type(aval_out), x, full_like_aval(0, aval_in),
-        ir.StringAttr.get("NE"), ir.StringAttr.get(compare_type)).result
+    if jax._src.lib.mlir_api_version < 3:
+      return mhlo.CompareOp(
+          aval_to_ir_type(aval_out), x, full_like_aval(0, aval_in),
+          ir.StringAttr.get("NE"), ir.StringAttr.get(compare_type)).result
+    else:
+      return mhlo.CompareOp(x, full_like_aval(0, aval_in),
+                            ir.StringAttr.get("NE"),
+                            ir.StringAttr.get(compare_type)).result
   return mhlo.ConvertOp(aval_to_ir_type(aval_out), x).result
 
 def _wrap_with_spmd_op(name: str,
