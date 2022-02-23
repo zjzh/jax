@@ -20,7 +20,6 @@ from jax.config import config
 import jax.numpy as jnp
 import numpy as np
 import scipy.linalg as osp_linalg
-from jax._src.lax import svd
 from jax._src import test_util as jtu
 
 from absl.testing import absltest
@@ -63,7 +62,7 @@ class SvdTest(jtu.JaxTestCase):
       a = a + 1j * a
 
       osp_linalg_fn = functools.partial(osp_linalg.svd, full_matrices=False)
-      actual_u, actual_s, actual_v = svd.svd(a)
+      actual_u, actual_s, actual_v = jax.lax.svd(a)
 
       k = min(m, n)
       if m > n:
@@ -78,7 +77,7 @@ class SvdTest(jtu.JaxTestCase):
       args_maker = lambda: [a]
 
       with self.subTest('Test JIT compatibility'):
-        self._CompileAndCheck(svd.svd, args_maker)
+        self._CompileAndCheck(jax.lax.svd, args_maker)
 
       with self.subTest('Test unitary u.'):
         self.assertAllClose(np.eye(k), unitary_u, rtol=_SVD_RTOL, atol=2E-3)
@@ -99,7 +98,7 @@ class SvdTest(jtu.JaxTestCase):
     with jax.default_matmul_precision('float32'):
       np.random.seed(1235)
       a = np.random.randn(m, n).astype(_SVD_TEST_DTYPE)
-      u, s, v = svd.svd(a, is_hermitian=False)
+      u, s, v = jax.lax.svd(a, is_hermitian=False)
 
       relative_diff = np.linalg.norm(a - (u * s) @ v) / np.linalg.norm(a)
 
@@ -124,7 +123,7 @@ class SvdTest(jtu.JaxTestCase):
       a = (u * s) @ v
 
       with jax.default_matmul_precision('float32'):
-        u, s, v = svd.svd(a, is_hermitian=False)
+        u, s, v = jax.lax.svd(a, is_hermitian=False)
       diff = np.linalg.norm(a - (u * s) @ v)
 
       np.testing.assert_almost_equal(diff, 1E-4, decimal=2)

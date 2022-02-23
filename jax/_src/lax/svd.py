@@ -35,8 +35,6 @@ https://epubs.siam.org/doi/abs/10.1137/090774999
 
 import functools
 
-from typing import Sequence
-
 import jax
 from jax import core
 from jax import lax
@@ -44,9 +42,7 @@ import jax.numpy as jnp
 
 
 @functools.partial(jax.jit, static_argnums=(1, 2))
-def _svd(a: jnp.ndarray,
-         is_hermitian: bool,
-         max_iterations: int) -> Sequence[jnp.ndarray]:
+def _svd(a, is_hermitian: bool, max_iterations: int):
   """Singular value decomposition for m x n matrix and m >= n.
 
   Args:
@@ -93,9 +89,7 @@ def _svd(a: jnp.ndarray,
 
 
 @functools.partial(jax.jit, static_argnums=(1, 2))
-def svd(a: jnp.ndarray,
-        is_hermitian: bool = False,
-        max_iterations: int = 10) -> Sequence[jnp.ndarray]:
+def svd(a, is_hermitian: bool = False, max_iterations: int = 10):
   """Singular value decomposition.
 
   Args:

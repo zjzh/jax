@@ -371,3 +371,4 @@ from jax._src.lax.other import (
 )
 from jax._src.ad_util import stop_gradient_p as stop_gradient_p
 from jax.lax import linalg as linalg
+from jax._src.lax.svd import svd as svd
