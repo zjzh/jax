@@ -660,8 +660,13 @@ class PJitTest(jtu.BufferDonationTestCase):
     x = jnp.arange(np.prod(shape)).reshape(shape)
     expected = x @ (x + 1)
 
-    exe = f.lower(x, x + 1).compile()
-    actual = exe(x, x + 1)
+    lowered = f.lower(x, x + 1)
+    compiled = lowered.compile()
+    actual = compiled(x, x + 1)
+
+    self.assertEqual(lowered.in_avals, compiled.in_avals)
+    self.assertEqual(lowered.in_avals,
+                     (jax.ShapedArray(shape, x.dtype, weak_type=False),) * 2)
 
     splits = np.split(expected, 4)
     self.assertAllClose(actual.device_buffers[0].to_py(), splits[0],

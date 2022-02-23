@@ -768,6 +768,10 @@ class CPPJitTest(jtu.BufferDonationTestCase):
     f_low = f_jit.lower(1.)
     f_exe = f_low.compile()
     self.assertAllClose(f_exe(1.), 2.)
+    self.assertEqual(f_low.in_avals, f_exe.in_avals)
+    expected_dtype = np.float64 if config.x64_enabled else np.float32
+    self.assertEqual(f_low.in_avals,
+                     (jax.ShapedArray([], expected_dtype, weak_type=True),))
 
   def test_jit_lower_duck_typing(self):
     f_jit = self.jit(lambda x: 2 * x)

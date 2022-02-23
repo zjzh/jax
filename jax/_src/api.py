@@ -499,10 +499,14 @@ class Lowered:
   querying properties of lowered computations across JAX's various
   lowering paths (``jit``, ``pmap``, etc.).
   """
-  __slots__ = ['in_tree', 'out_tree', 'donate_argnums', '_lowering',
-               '_no_kwargs']
+  __slots__ = [
+      "in_tree", "in_avals", "out_tree", "donate_argnums", "_lowering",
+      "_no_kwargs"
+  ]
 
   in_tree: PyTreeDef
+  # Flattened input abstract values.
+  in_avals: Sequence[core.ShapedArray]
   out_tree: PyTreeDef
   donate_argnums: Tuple[int]
   _lowering: Union[dispatch.XlaComputation,
@@ -510,18 +514,24 @@ class Lowered:
                    pxla.PmapComputation]
   _no_kwargs: bool
 
-  def __init__(self, lowering, in_tree, out_tree, donate_argnums,
+  def __init__(self,
+               lowering,
+               in_tree,
+               in_avals,
+               out_tree,
+               donate_argnums,
                no_kwargs=False):
     self._lowering = lowering
     self.in_tree = in_tree
+    self.in_avals = in_avals
     self.out_tree = out_tree
     self.donate_argnums = donate_argnums
     self._no_kwargs = no_kwargs
 
   def compile(self) -> 'Compiled':
     return Compiled(
-        self._lowering.compile(), self.in_tree, self.out_tree,
-        self.donate_argnums, self._no_kwargs)
+        self._lowering.compile(), self.in_tree, self.in_avals,
+        self.out_tree, self.donate_argnums, self._no_kwargs)
 
   def compiler_ir(self, dialect: Optional[str] = None):
     if dialect is None or dialect == "mhlo":
@@ -544,10 +554,13 @@ class Compiled:
   common API for querying properties of compiled computations across
   JAX's various compilation paths and backends.
   """
-  __slots__ = ['in_tree', 'out_tree', 'donate_argnums', '_executable',
-               '_no_kwargs']
+  __slots__ = [
+      "in_tree", "in_avals", "out_tree", "donate_argnums", "_executable",
+      "_no_kwargs"
+  ]
 
   in_tree: PyTreeDef
+  in_avals: Sequence[core.ShapedArray]
   out_tree: PyTreeDef
   donate_argnums: Tuple[int]
   _executable: Union[dispatch.XlaCompiledComputation,
@@ -555,10 +568,11 @@ class Compiled:
                      pxla.PmapExecutable]
   _no_kwargs: bool
 
-  def __init__(self, executable, in_tree, out_tree, donate_argnums,
+  def __init__(self, executable, in_tree, in_avals, out_tree, donate_argnums,
                no_kwargs=False):
     self._executable = executable
     self.in_tree = in_tree
+    self.in_avals = in_avals
     self.out_tree = out_tree
     self.donate_argnums = donate_argnums
     self._no_kwargs = no_kwargs
@@ -648,10 +662,16 @@ def _jit_lower(fun, static_argnums, static_argnames, device, backend,
         fun, static_argnums, static_argnames, donate_argnums, args, kwargs)
     flat_fun, out_tree = flatten_fun(closed_fun, in_tree)
     name = flat_fun.__name__
-    arg_specs = unsafe_map(arg_spec, args_flat)
-    computation = dispatch.lower_xla_callable(
-        flat_fun, device, backend, name, donated_invars, *arg_specs)
-    return Lowered(computation, in_tree, out_tree(), donate_argnums)
+    arg_specs_and_device = list(unsafe_map(arg_spec, args_flat))
+    # Only do this if the list is not empty
+    if arg_specs_and_device:
+      arg_specs = zip(*arg_specs_and_device)[0]
+    else:
+      arg_specs = []
+    computation = dispatch.lower_xla_callable(flat_fun, device, backend, name,
+                                              donated_invars,
+                                              *arg_specs_and_device)
+    return Lowered(computation, in_tree, arg_specs, out_tree(), donate_argnums)
 
   return lower
 
@@ -2163,7 +2183,7 @@ def _pmap_lower(fun, axis_name, in_axes, out_axes, static_broadcasted_tuple,
     p = _prepare_pmap(
         fun, in_axes, out_axes, static_broadcasted_tuple, donate_tuple,
         global_arg_shapes, args, kwargs)
-    abstract_args = map(xla.abstractify, p.flat_args)
+    abstract_args = list(map(xla.abstractify, p.flat_args))
     computation = pxla.lower_parallel_callable(
         p.flat_fun, backend, axis_name,
         axis_size=p.local_axis_size, global_axis_size=axis_size,
@@ -2174,7 +2194,8 @@ def _pmap_lower(fun, axis_name, in_axes, out_axes, static_broadcasted_tuple,
         donated_invars=p.donated_invars,
         global_arg_shapes=p.global_arg_shapes_flat,
         avals=abstract_args)
-    return Lowered(computation, p.in_tree, p.out_tree(), donate_tuple)
+    return Lowered(computation, p.in_tree, abstract_args, p.out_tree(),
+                   donate_tuple)
 
   return lower
 
@@ -2700,7 +2721,7 @@ def make_jaxpr(fun: Callable,
       env: Dict[Hashable, core.AbstractValue] = {}
       def make_aval(arg, spec):
         if isinstance(spec, tuple):
-            spec = dict(zip(range(len(arg.shape)), spec))
+          spec = dict(zip(range(len(arg.shape)), spec))
         if not spec: return shaped_abstractify(arg)
         assert all(arg.shape[i] == sizes.setdefault(name, arg.shape[i])
                    for i, name in spec.items())

@@ -660,7 +660,7 @@ def xmap(fun: Callable,
         params['spmd_out_axes_thunk'], params['in_positional_semantics'],
         params['out_positional_semantics'], *avals_flat)
     return Lowered(
-        computation, in_tree, out_tree(), donate_argnums, no_kwargs=True)
+        computation, in_tree, avals_flat, out_tree(), donate_argnums, no_kwargs=True)
 
   fun_mapped = wraps(fun)(decorate_serial(fun_mapped))
   fun_mapped.lower = decorate_serial(lower)
